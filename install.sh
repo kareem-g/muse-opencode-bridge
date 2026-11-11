@@ -150,6 +150,19 @@ else
   echo "Unsupported OS for auto-service. Run manually: $INSTALL_BIN"
 fi
 
+# 6. Install MCP server for muse-cli (lets normal OpenCode models call muse.ai as a tool)
+MCP_SRC="$REPO_DIR/mcp_server.py"
+MCP_BIN="${HOME}/.local/bin/muse-mcp-server"
+if [ -f "$MCP_SRC" ]; then
+  cp "$MCP_SRC" "$MCP_BIN"
+  chmod +x "$MCP_BIN"
+  echo "Installed MCP server to $MCP_BIN"
+  if command -v opencode >/dev/null 2>&1; then
+    opencode mcp add muse --global -- "$MCP_BIN" >/dev/null 2>&1 || true
+    echo "Registered MCP server 'muse' with OpenCode (if not already present)"
+  fi
+fi
+
 sleep 1
 if curl -s "http://127.0.0.1:${PORT}/v1/models" >/dev/null 2>&1; then
   echo ""

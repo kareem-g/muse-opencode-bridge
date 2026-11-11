@@ -28,6 +28,14 @@ The installer:
 
 Then in OpenCode select model **muse / muse-chat**.
 
+## MCP server (use muse.ai as a tool from any OpenCode model)
+
+The repo also ships `mcp_server.py`, a stdio MCP server that exposes muse-cli
+commands (`muse_status`, `muse_send`, `muse_history`, ...). It is installed to
+`~/.local/bin/muse-mcp-server` and registered as the `muse` MCP server by
+`install.sh`. This lets a normal (tool-calling) OpenCode model talk to your
+muse.ai agent while keeping OpenCode's native file/bash tools.
+
 ## Manual run
 
 ```bash
