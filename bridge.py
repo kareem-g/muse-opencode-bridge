@@ -93,12 +93,30 @@ def get_or_create_thread(messages: List[Dict[str, Any]]) -> str:
 app = FastAPI(title="muse-opencode-bridge")
 
 
+COMMON_PROJECT_FILES = [
+    "README.md", "README.txt", "README", "package.json", "pyproject.toml",
+    "Package.swift", "project.yml", "Cargo.toml", "go.mod", "pom.xml",
+    "build.gradle", "Makefile", "requirements.txt",
+]
+
+
 def _read_local_path(path: str) -> str:
     path = path.rstrip(".,:;)")
     try:
         if os.path.isdir(path):
             entries = sorted(os.listdir(path))[:80]
-            return "Directory listing for %s:\n%s" % (path, "\n".join(entries))
+            out = "Directory listing for %s:\n%s" % (path, "\n".join(entries))
+            # Also include common project files so the agent can understand the project
+            for name in COMMON_PROJECT_FILES:
+                fp = os.path.join(path, name)
+                if os.path.isfile(fp):
+                    try:
+                        with open(fp, "r", errors="replace") as f:
+                            data = f.read(20000)
+                        out += "\n\nContents of %s:\n%s" % (fp, data)
+                    except Exception:
+                        pass
+            return out
         if os.path.isfile(path):
             with open(path, "r", errors="replace") as f:
                 data = f.read(30000)
