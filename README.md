@@ -67,7 +67,8 @@ If you prefer manual setup, add to `~/.config/opencode/opencode.jsonc` under `pr
 ## Notes
 
 - Each request blocks up to `MUSE_BRIDGE_WAIT` seconds while the muse agent thinks.
-- The bridge uses muse-cli's main chat. Conversation history is managed by muse.ai.
+- Each OpenCode conversation gets its own muse.ai side chat (created on first message and reused for follow-ups), so sessions stay separate. State is stored in `~/.config/muse-opencode-bridge/sessions.json`.
+- The bridge uses muse-cli. Conversation history is managed by muse.ai.
 - Service logs: Linux `journalctl --user -u muse-opencode-bridge`; macOS `~/.config/muse-opencode-bridge.log`.
 - To uninstall: `systemctl --user disable --now muse-opencode-bridge` (Linux) / `launchctl unload ~/Library/LaunchAgents/com.muse-opencode-bridge.plist` (macOS), then remove `~/.local/bin/muse-opencode-bridge`.
 
