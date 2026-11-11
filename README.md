@@ -59,7 +59,7 @@ If you prefer manual setup, add to `~/.config/opencode/opencode.jsonc` under `pr
     "apiKey": "sk-muse-local"
   },
   "models": {
-    "muse-chat": { "name": "Muse Chat" }
+    "muse-chat": { "name": "Muse Chat", "tool_call": true, "attachment": true }
   }
 }
 ```

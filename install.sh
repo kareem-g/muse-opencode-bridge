@@ -59,7 +59,16 @@ if "muse" not in cfg["provider"]:
             "baseURL": "http://127.0.0.1:%s/v1" % port,
             "apiKey": "sk-muse-local",
         },
-        "models": {"muse-chat": {"name": "Muse Chat"}},
+        "models": {
+            "muse-chat": {
+                "name": "Muse Chat",
+                "tool_call": True,
+                "attachment": True,
+                "temperature": True,
+                "modalities": {"input": ["text"], "output": ["text"]},
+                "limit": {"context": 128000, "output": 8192},
+            }
+        },
     }
     with open(path, "w") as f:
         json.dump(cfg, f, indent=2)

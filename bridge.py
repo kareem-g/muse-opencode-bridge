@@ -32,23 +32,65 @@ MUSE_CLI = os.environ.get("MUSE_CLI_BIN", "muse-cli")
 app = FastAPI(title="muse-opencode-bridge")
 
 
+def _collect_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for p in content:
+            if isinstance(p, str):
+                parts.append(p)
+            elif isinstance(p, dict):
+                if isinstance(p.get("text"), str):
+                    parts.append(p["text"])
+                elif p.get("type") in ("text", "input_text", "output_text"):
+                    t = p.get("text") or p.get("content")
+                    if isinstance(t, str):
+                        parts.append(t)
+                elif p.get("type") == "file":
+                    t = p.get("text") or p.get("content") or p.get("data")
+                    if isinstance(t, str):
+                        parts.append(t)
+        return "\n".join(x for x in parts if x)
+    if isinstance(content, dict):
+        t = content.get("text") or content.get("content")
+        if isinstance(t, str):
+            return t
+    return str(content)
+
+
 def extract_user_text(messages: List[Dict[str, Any]]) -> str:
-    for m in reversed(messages or []):
-        if m.get("role") == "user":
-            c = m.get("content")
-            if isinstance(c, list):
-                parts = []
-                for p in c:
-                    if isinstance(p, dict) and p.get("type") == "text":
-                        parts.append(p.get("text", ""))
-                    elif isinstance(p, str):
-                        parts.append(p)
-                return "\n".join(parts).strip()
-            return str(c).strip() if c is not None else ""
-    if messages:
-        last = messages[-1].get("content")
-        return str(last).strip() if last is not None else ""
-    return ""
+    if not messages:
+        return ""
+    system_parts = []
+    for m in messages:
+        if m.get("role") == "system":
+            t = _collect_text(m.get("content"))
+            if t.strip():
+                system_parts.append(t.strip())
+
+    latest = None
+    for m in reversed(messages):
+        if m.get("role") in ("user", "tool"):
+            latest = m
+            break
+    if latest is None:
+        latest = messages[-1]
+
+    body = _collect_text(latest.get("content"))
+    role = latest.get("role")
+    if role == "tool":
+        name = latest.get("name") or latest.get("tool_call_id") or "tool"
+        body = "Tool result (%s):\n%s" % (name, body)
+
+    parts = []
+    if system_parts:
+        parts.append("System:\n" + "\n\n".join(system_parts))
+    if body.strip():
+        parts.append(body.strip())
+    return "\n\n".join(parts).strip()
 
 
 def call_muse(text: str) -> str:
@@ -91,6 +133,7 @@ async def chat_completions(request: Any):
     body = await request.json()
     messages = body.get("messages", [])
     stream = bool(body.get("stream", False))
+    # Accept and ignore tool definitions; muse-cli agent does not emit tool_calls.
     text = extract_user_text(messages)
     content = call_muse(text)
     created = int(time.time())
