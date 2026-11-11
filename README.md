@@ -14,7 +14,7 @@ It is a thin bridge over [muse-cli](https://github.com/nikships/muse-cli): it tr
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/muse-opencode-bridge.git
+git clone https://github.com/kareem-g/muse-opencode-bridge.git
 cd muse-opencode-bridge
 ./install.sh
 ```
