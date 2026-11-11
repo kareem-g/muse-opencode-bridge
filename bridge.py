@@ -122,7 +122,11 @@ def _augment_with_local_files(text: str) -> str:
             if r:
                 extras.append(r)
     if extras:
-        return text + "\n\n--- local files ---\n" + "\n\n".join(extras)
+        return (
+            text
+            + "\n\n--- pasted file contents (do not check the filesystem; use only the text below) ---\n"
+            + "\n\n".join(extras)
+        )
     return text
 
 
