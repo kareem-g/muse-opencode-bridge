@@ -331,10 +331,16 @@ def call_muse(text: str, thread_id: str = None) -> str:
 @app.get("/v1/models")
 @app.get("/models")
 def models():
-    return {
-        "object": "list",
-        "data": [{"id": MODEL_ID, "object": "model", "created": int(time.time()), "owned_by": "muse.ai"}],
-    }
+    ids = [MODEL_ID, "muse-image", "muse-video"]
+    # de-dupe preserving order
+    seen = set()
+    out = []
+    for mid in ids:
+        if mid in seen:
+            continue
+        seen.add(mid)
+        out.append({"id": mid, "object": "model", "created": int(time.time()), "owned_by": "muse.ai"})
+    return {"object": "list", "data": out}
 
 
 @app.post("/v1/chat/completions")
@@ -343,24 +349,42 @@ async def chat_completions(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
     stream = bool(body.get("stream", False))
-    thread_id = get_or_create_thread(messages)
-    text = extract_user_text(messages)
-    text = _augment_with_local_files(text)
+    requested_model = body.get("model") or MODEL_ID
 
-    # Retry once if the stored thread is stale/invalid.
-    try:
-        content = call_muse(text, thread_id)
-    except HTTPException as e:
-        if e.status_code == 502:
-            state = _load_state()
-            key_src = _first_user_text(messages) or json.dumps(messages[:1], sort_keys=True)
-            key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
-            state.pop(key, None)
-            _save_state(state)
-            thread_id = get_or_create_thread(messages)
-            content = call_muse(text, thread_id)
+    # Media models: generate image/video and return a link instead of chatting.
+    if "image" in requested_model:
+        prompt = extract_user_text(messages)
+        fpath = generate_media(prompt, "image")
+        if fpath and os.path.exists(fpath):
+            fname = os.path.basename(fpath)
+            content = "Generated image: http://%s:%d/media/%s" % (HOST, PORT, fname)
         else:
-            raise
+            content = "Image generation failed."
+    elif "video" in requested_model:
+        prompt = extract_user_text(messages)
+        fpath = generate_media(prompt, "video")
+        if fpath and os.path.exists(fpath):
+            fname = os.path.basename(fpath)
+            content = "Generated video: http://%s:%d/media/%s" % (HOST, PORT, fname)
+        else:
+            content = "Video generation failed."
+    else:
+        thread_id = get_or_create_thread(messages)
+        text = extract_user_text(messages)
+        text = _augment_with_local_files(text)
+        try:
+            content = call_muse(text, thread_id)
+        except HTTPException as e:
+            if e.status_code == 502:
+                state = _load_state()
+                key_src = _first_user_text(messages) or json.dumps(messages[:1], sort_keys=True)
+                key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
+                state.pop(key, None)
+                _save_state(state)
+                thread_id = get_or_create_thread(messages)
+                content = call_muse(text, thread_id)
+            else:
+                raise
     created = int(time.time())
     cid = "chatcmpl-muse-" + str(created)
 

@@ -67,7 +67,19 @@ if "muse" not in cfg["provider"]:
                 "temperature": True,
                 "modalities": {"input": ["text"], "output": ["text"]},
                 "limit": {"context": 128000, "output": 8192},
-            }
+            },
+            "muse-image": {
+                "name": "Muse Image",
+                "tool_call": False,
+                "attachment": True,
+                "modalities": {"input": ["text"], "output": ["text"]},
+            },
+            "muse-video": {
+                "name": "Muse Video",
+                "tool_call": False,
+                "attachment": True,
+                "modalities": {"input": ["text"], "output": ["text"]},
+            },
         },
     }
     with open(path, "w") as f:
