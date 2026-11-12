@@ -163,6 +163,12 @@ if [ -f "$MCP_SRC" ]; then
   fi
 fi
 
+# 7. Optional 9Router integration
+if [ -f "${HOME}/.9router/db/data.sqlite" ]; then
+  echo "==> Registering with 9Router"
+  "$PYTHON" "$REPO_DIR/connect_9router.py" --port "$PORT" 2>&1 | tail -5 || true
+fi
+
 sleep 1
 if curl -s "http://127.0.0.1:${PORT}/v1/models" >/dev/null 2>&1; then
   echo ""

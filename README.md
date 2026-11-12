@@ -36,6 +36,25 @@ commands (`muse_status`, `muse_send`, `muse_history`, ...). It is installed to
 `install.sh`. This lets a normal (tool-calling) OpenCode model talk to your
 muse.ai agent while keeping OpenCode's native file/bash tools.
 
+## Media (image & video)
+
+The bridge also exposes OpenAI-style media endpoints, powered by your muse.ai agent:
+
+- `POST /v1/images/generations` with `{"prompt": "..."}` → returns `b64_json`.
+- `POST /v1/videos` with `{"prompt": "..."}` → returns `{"id": "...", "status": "queued"}`.
+- `GET /v1/videos/{id}` → poll status; returns `url` to the downloaded file when done.
+- `GET /media/{filename}` → fetch a generated file.
+
+## 9Router
+
+If 9Router is installed, register the bridge:
+
+```bash
+python3 connect_9router.py --port 18765
+```
+
+Then call `muse/muse-chat`, `muse/muse-image`, `muse/muse-video` through 9Router on port 20128.
+
 ## Manual run
 
 ```bash

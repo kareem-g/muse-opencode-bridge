@@ -8,12 +8,16 @@ Run:
 Then point OpenCode (or any OpenAI client) at http://127.0.0.1:<port>/v1
 with model id "muse-chat".
 """
+import base64
 import hashlib
 import json
 import os
 import re
 import subprocess
+import threading
 import time
+import uuid
+from pathlib import Path
 from typing import Any, Dict, List
 
 try:
@@ -33,6 +37,9 @@ MUSE_CLI = os.environ.get("MUSE_CLI_BIN", "muse-cli")
 
 STATE_DIR = os.path.expanduser(os.environ.get("MUSE_BRIDGE_STATE_DIR", "~/.config/muse-opencode-bridge"))
 STATE_FILE = os.path.join(STATE_DIR, "sessions.json")
+MEDIA_DIR = os.path.join(STATE_DIR, "media")
+TASKS = {}  # task_id -> dict
+os.makedirs(MEDIA_DIR, exist_ok=True)
 
 
 def _load_state() -> dict:
@@ -88,6 +95,90 @@ def get_or_create_thread(messages: List[Dict[str, Any]]) -> str:
     state[key] = sid
     _save_state(state)
     return sid
+
+
+def list_media():
+    res = run_cli(["files", "--limit", "20"])
+    if isinstance(res, dict) and isinstance(res.get("result"), list):
+        return res["result"]
+    return []
+
+
+def run_cli(args, timeout=180):
+    try:
+        proc = subprocess.run(
+            [MUSE_CLI] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return {"error": "muse-cli not found on PATH"}
+    except subprocess.TimeoutExpired:
+        return {"error": "muse-cli timed out"}
+    out = proc.stdout.strip()
+    err = proc.stderr.strip()
+    if proc.returncode != 0:
+        return {"error": err or out or "muse-cli failed (exit %d)" % proc.returncode}
+    try:
+        return {"result": json.loads(out)}
+    except (json.JSONDecodeError, ValueError):
+        return {"result": out}
+
+
+def download_media(path):
+    try:
+        proc = subprocess.run(
+            [MUSE_CLI, "download", path, "-o", MEDIA_DIR],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except Exception as e:
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        data = json.loads(proc.stdout)
+        if isinstance(data, list) and data:
+            return data[0].get("file")
+    except Exception:
+        pass
+    return None
+
+
+def generate_media(prompt, kind="image"):
+    # record existing paths
+    before = {m.get("path") for m in list_media()}
+    message = "Generate a %s of %s" % (kind, prompt)
+    text = _augment_with_local_files(message)
+    # use main chat (no thread) for media
+    call_muse(text)
+    # find new media
+    media = list_media()
+    new_items = [m for m in media if m.get("path") not in before and m.get("kind") == kind]
+    if not new_items:
+        # fall back to latest of kind
+        new_items = [m for m in media if m.get("kind") == kind]
+    if not new_items:
+        return None
+    path = new_items[0].get("path")
+    return download_media(path)
+
+
+def media_task(task_id, prompt, kind):
+    TASKS[task_id]["status"] = "running"
+    try:
+        fpath = generate_media(prompt, kind)
+        if fpath and os.path.exists(fpath):
+            TASKS[task_id]["status"] = "completed"
+            TASKS[task_id]["file"] = fpath
+        else:
+            TASKS[task_id]["status"] = "failed"
+            TASKS[task_id]["error"] = "no media generated"
+    except Exception as e:
+        TASKS[task_id]["status"] = "failed"
+        TASKS[task_id]["error"] = str(e)
 
 
 app = FastAPI(title="muse-opencode-bridge")
@@ -305,6 +396,55 @@ async def chat_completions(request: Request):
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/v1/images/generations")
+async def images_generations(request: Request):
+    body = await request.json()
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+    fpath = generate_media(prompt, "image")
+    if not fpath or not os.path.exists(fpath):
+        raise HTTPException(status_code=502, detail="image generation failed")
+    with open(fpath, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    return {"created": int(time.time()), "data": [{"b64_json": b64}]}
+
+
+@app.post("/v1/videos")
+async def videos_create(request: Request):
+    body = await request.json()
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+    task_id = "video-" + uuid.uuid4().hex[:12]
+    TASKS[task_id] = {"status": "queued", "prompt": prompt, "file": None, "error": None}
+    threading.Thread(target=media_task, args=(task_id, prompt, "video"), daemon=True).start()
+    return {"id": task_id, "status": "queued"}
+
+
+@app.get("/v1/videos/{task_id}")
+def videos_status(task_id: str):
+    task = TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="unknown task")
+    resp = {"id": task_id, "status": task["status"]}
+    if task["status"] == "completed" and task.get("file"):
+        fname = os.path.basename(task["file"])
+        resp["url"] = "http://%s:%d/media/%s" % (HOST, PORT, fname)
+    if task["status"] == "failed":
+        resp["error"] = task.get("error")
+    return resp
+
+
+@app.get("/media/{filename}")
+def media_file(filename: str):
+    fpath = os.path.join(MEDIA_DIR, filename)
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="file not found")
+    from fastapi.responses import FileResponse
+    return FileResponse(fpath)
 
 
 if __name__ == "__main__":
