@@ -63,11 +63,15 @@ def _first_user_text(messages: List[Dict[str, Any]]) -> str:
     return ""
 
 
-def get_or_create_thread(messages: List[Dict[str, Any]]) -> str:
-    key_src = _first_user_text(messages)
-    if not key_src:
-        key_src = json.dumps(messages[:1], sort_keys=True)
-    key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
+def get_or_create_thread(messages: List[Dict[str, Any]], session_id: str = None) -> str:
+    if session_id:
+        key = "oc-" + session_id
+        key_src = _first_user_text(messages) or "opencode session"
+    else:
+        key_src = _first_user_text(messages)
+        if not key_src:
+            key_src = json.dumps(messages[:1], sort_keys=True)
+        key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
 
     state = _load_state()
     if key in state:
@@ -350,6 +354,12 @@ async def chat_completions(request: Request):
     messages = body.get("messages", [])
     stream = bool(body.get("stream", False))
     requested_model = body.get("model") or MODEL_ID
+    session_id = (
+        request.headers.get("x-opencode-session-id")
+        or request.headers.get("x-opencode-session")
+        or request.headers.get("x-session-id")
+        or request.headers.get("x-session-affinity")
+    )
 
     # Media models: generate image/video and return a link instead of chatting.
     if "image" in requested_model:
@@ -369,7 +379,7 @@ async def chat_completions(request: Request):
         else:
             content = "Video generation failed."
     else:
-        thread_id = get_or_create_thread(messages)
+        thread_id = get_or_create_thread(messages, session_id)
         text = extract_user_text(messages)
         text = _augment_with_local_files(text)
         try:
@@ -377,11 +387,14 @@ async def chat_completions(request: Request):
         except HTTPException as e:
             if e.status_code == 502:
                 state = _load_state()
-                key_src = _first_user_text(messages) or json.dumps(messages[:1], sort_keys=True)
-                key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
+                if session_id:
+                    key = "oc-" + session_id
+                else:
+                    key_src = _first_user_text(messages) or json.dumps(messages[:1], sort_keys=True)
+                    key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
                 state.pop(key, None)
                 _save_state(state)
-                thread_id = get_or_create_thread(messages)
+                thread_id = get_or_create_thread(messages, session_id)
                 content = call_muse(text, thread_id)
             else:
                 raise
